@@ -7,10 +7,14 @@
 #
 
 reboot_pi () {
+  # fsync makes FAT (vfat) issue a disk cache flush; plain sync does not
+  sync -f /boot/firmware/cmdline.txt /boot/cmdline.txt 2>/dev/null
   umount /boot
   umount /boot/firmware
   sync
-  echo b > /proc/sysrq-trigger
+  # sysrq-b skips device shutdown, so NVMe write cache may be lost and cmdline.txt
+  # keeps init=reconfig-clusterctrl -> endless reboot loop. Use reboot(2) instead.
+  reboot -ff || busybox reboot -f || echo b > /proc/sysrq-trigger
   sleep 5
   exit 0
 }
@@ -34,6 +38,18 @@ mount $BOOT
 if [ -f /etc/os-release ]; then
  source /etc/os-release
 fi
+
+if [ "$VERSION_CODENAME" = "bookworm" ] || [ "$VERSION_CODENAME" = "trixie" ];then
+ IFACES_PREFIX="interfaces.bookworm"
+else
+ IFACES_PREFIX="interfaces"
+fi
+
+set_ip_forward () {
+ for F in /etc/sysctl.conf /etc/sysctl.d/90-clusterctrl.conf; do
+  [ -f "$F" ] && sed -i "$1" "$F"
+ done
+}
 
 if [ ! -z $1 ];then
 
@@ -70,11 +86,7 @@ if [ ! -z $1 ];then
   # Setup the interfaces/issue files
   if [ "$1" = "cnat" ];then
    rm -f /etc/network/interfaces.d/clusterctrl
-   if [ $VERSION_CODENAME = "bookworm" ];then
-    cp -f "$CONFIGDIR/interfaces.bookworm.cnat" /etc/network/interfaces.d/clusterctrl
-   else
-    cp -f "$CONFIGDIR/interfaces.cnat" /etc/network/interfaces.d/clusterctrl
-   fi
+   cp -f "$CONFIGDIR/$IFACES_PREFIX.cnat" /etc/network/interfaces.d/clusterctrl
    cp -f "$CONFIGDIR/issue.c" /etc/issue
    sed -i "s/^dtoverlay=dwc2.*$/dtoverlay=dwc2,dr_mode=host/" /$BOOT/config.txt
    sed -i "s/^#otg_mode=1 # Controller only$/otg_mode=1 # Controller only/" /$BOOT/config.txt
@@ -83,18 +95,14 @@ if [ ! -z $1 ];then
    if [ -f /etc/dhcpcd.conf ]; then
     sed -i 's~^static ip_address=172.19.181.*/24 #Cluster.*~static ip_address=172.19.181.253/24 #ClusterCTRL~' /etc/dhcpcd.conf
    fi
-   sed -i "s/^#net.ipv4.ip_forward=1 # Cluster.*/net.ipv4.ip_forward=1 # ClusterCTRL/" /etc/sysctl.conf
+   set_ip_forward "s/^#net.ipv4.ip_forward=1 # Cluster.*/net.ipv4.ip_forward=1 # ClusterCTRL/"
    systemctl enable clusterctrl-init
    systemctl disable clusterctrl-composite
    systemctl disable serial-getty@ttyGS0.service
    echo "TYPE=cnat" >> /etc/default/clusterctrl
   elif [ "$1" = "cbridge" ];then
    rm -f /etc/network/interfaces.d/clusterctrl
-   if [ $VERSION_CODENAME = "bookworm" ];then
-    cp -f "$CONFIGDIR/interfaces.bookworm.cbridge" /etc/network/interfaces.d/clusterctrl
-   else
-    cp -f "$CONFIGDIR/interfaces.cbridge" /etc/network/interfaces.d/clusterctrl
-   fi
+   cp -f "$CONFIGDIR/$IFACES_PREFIX.cbridge" /etc/network/interfaces.d/clusterctrl
    cp -f "$CONFIGDIR/issue.c" /etc/issue
    sed -i "s/^dtoverlay=dwc2.*$/dtoverlay=dwc2,dr_mode=host/" /$BOOT/config.txt
    sed -i "s/^#otg_mode=1 # Controller only$/otg_mode=1 # Controller only/" /$BOOT/config.txt
@@ -104,7 +112,7 @@ if [ ! -z $1 ];then
     sed -i 's~^static ip_address=172.19.181.*/24 #Cluster.*~static ip_address=172.19.181.253/24 #ClusterCTRL~' /etc/dhcpcd.conf
     sed -i 's#^\(denyinterfaces.*\)#\1 eth0#' /etc/dhcpcd.conf
    fi
-   sed -i "s/^net.ipv4.ip_forward=1 # ClusterCTRL/#net.ipv4.ip_forward=1 # ClusterCTRL/" /etc/sysctl.conf
+   set_ip_forward "s/^net.ipv4.ip_forward=1 # ClusterCTRL/#net.ipv4.ip_forward=1 # ClusterCTRL/"
    systemctl enable clusterctrl-init
    systemctl disable clusterctrl-composite
    systemctl disable serial-getty@ttyGS0.service
@@ -112,7 +120,7 @@ if [ ! -z $1 ];then
   else
    P=${1:1}
    rm -f /etc/network/interfaces.d/clusterctrl
-   if [ $VERSION_CODENAME = "bookworm" ];then
+   if [ "$IFACES_PREFIX" = "interfaces.bookworm" ];then
     cp -f "$CONFIGDIR/interfaces.bookworm.p" /etc/network/interfaces.d/clusterctrl
    fi
    cp -f "$CONFIGDIR/issue.p" /etc/issue
@@ -128,7 +136,7 @@ if [ ! -z $1 ];then
    fi
    systemctl enable serial-getty@ttyGS0.service
    systemctl disable clusterctrl-init
-   sed -i "s/^net.ipv4.ip_forward=1 # ClusterCTRL/#net.ipv4.ip_forward=1 # ClusterCTRL/" /etc/sysctl.conf
+   set_ip_forward "s/^net.ipv4.ip_forward=1 # ClusterCTRL/#net.ipv4.ip_forward=1 # ClusterCTRL/"
    echo "TYPE=node" >> /etc/default/clusterctrl
    echo "ID=$P" >> /etc/default/clusterctrl
    systemctl enable clusterctrl-composite
