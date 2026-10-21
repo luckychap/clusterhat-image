@@ -297,7 +297,7 @@ EOF
    INSTALLEXTRA+=" initramfs-tools-core python3-smbus python3-usb python3-libusb1 ifmetric python3-libgpiod ifupdown"
   elif [ $RELEASE =  "RASPIOS64TRIXIE" -o $RELEASE = "RASPIOS32TRIXIE" ]; then
    # Trixie no longer ships isc-dhcp-client by default (needed for dhclient.conf fallback leases)
-   INSTALLEXTRA+=" initramfs-tools-core python3-smbus python3-usb python3-libusb1 ifmetric python3-libgpiod ifupdown isc-dhcp-client"
+   INSTALLEXTRA+=" initramfs-tools-core python3-smbus python3-usb python3-usb1 ifmetric python3-libgpiod ifupdown isc-dhcp-client"
   fi
 
   chroot $MNT apt -y install rpiboot bridge-utils screen minicom subversion git libusb-1.0-0-dev nfs-kernel-server busybox $INSTALLEXTRA
