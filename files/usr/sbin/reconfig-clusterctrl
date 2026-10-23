@@ -150,9 +150,9 @@ if [ ! -z $1 ];then
 fi
 
 if [ $RESIZE -eq 1 ];then
- if grep -qw resize /$BOOT/cmdline.txt;then
-  # Trixie+: rpi-resize.service grows the rootfs on next boot
-  :
+ if [ -f /usr/lib/systemd/system/rpi-resize.service ];then
+  # Trixie+: rpi-resize.service grows the rootfs, triggered by 'resize' (Imager may strip it)
+  grep -qw resize /$BOOT/cmdline.txt || sed -i '1 s#$# resize#' /$BOOT/cmdline.txt
  elif [ -f /usr/lib/raspberrypi-sys-mods/firstboot ];then
   sed -i 's#$# init=/usr/lib/raspberrypi-sys-mods/firstboot#' /$BOOT/cmdline.txt
  elif [ -f /usr/lib/raspi-config/init_resize.sh ] && [ ! -f /$BOOT/noresize ] && [ ! -f /$BOOT/noresize.txt ];then
