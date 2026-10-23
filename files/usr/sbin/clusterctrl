@@ -348,12 +348,25 @@ def is_pi5() -> int:
 				return True
 	return False
 
-# Minimal RPi.GPIO functionality using gpiod for Pi5
+# Minimal RPi.GPIO functionality using gpiod for Pi5 (libgpiod v1 and v2 APIs)
 class FakeGPIO:
 	BCM=None
 	OUT=None
 	def __init__(self, chiplabel) -> None:
-		self.chip = gpiod.Chip(chiplabel, gpiod.Chip.OPEN_BY_LABEL)
+		self.v2 = hasattr(gpiod, 'request_lines')
+		if self.v2:
+			self.chip = None
+			for path in sorted(glob.glob('/dev/gpiochip*')):
+				if not gpiod.is_gpiochip_device(path): continue
+				chip = gpiod.Chip(path)
+				if chip.get_info().label == chiplabel:
+					self.chip = chip
+					break
+				chip.close()
+			if self.chip is None:
+				raise RuntimeError("GPIO chip '{}' not found".format(chiplabel))
+		else:
+			self.chip = gpiod.Chip(chiplabel, gpiod.Chip.OPEN_BY_LABEL)
 		self.pins = {}
 	def setwarnings(self,dummy):
 		pass
@@ -362,6 +375,15 @@ class FakeGPIO:
 	def setup(self,pins,mode: int) -> None:
 		if isinstance(pins,int): pins = [pins]
 		for p in pins:
+			if self.v2:
+				from gpiod.line import Direction
+				# Keep lines that are already outputs as-is so running nodes stay powered
+				if self.chip.get_line_info(p).direction == Direction.OUTPUT:
+					direction = Direction.AS_IS
+				else:
+					direction = Direction.OUTPUT
+				self.pins[p] = self.chip.request_lines(consumer="clusterctrl", config={p: gpiod.LineSettings(direction=direction)})
+				continue
 			self.pins[p] = self.chip.get_line(p)
 			if self.pins[p].direction() == 1:
 				self.pins[p].request(consumer="clusterctrl", type=gpiod.LINE_REQ_DIR_OUT)			
@@ -370,8 +392,15 @@ class FakeGPIO:
 			except:
 				self.pins[p].request(consumer="clusterctrl", type=gpiod.LINE_REQ_DIR_AS_IS)
 	def output(self,p,v) -> None:
-		self.pins[p].set_value(v)
+		if self.v2:
+			from gpiod.line import Value
+			self.pins[p].set_value(p, Value.ACTIVE if v else Value.INACTIVE)
+		else:
+			self.pins[p].set_value(v)
 	def input(self,p) -> int:
+		if self.v2:
+			from gpiod.line import Value
+			return 1 if self.pins[p].get_value(p) == Value.ACTIVE else 0
 		return self.pins[p].get_value()
 
 if is_pi5():

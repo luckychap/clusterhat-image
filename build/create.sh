@@ -302,6 +302,11 @@ EOF
 
   chroot $MNT apt -y install rpiboot bridge-utils screen minicom subversion git libusb-1.0-0-dev nfs-kernel-server busybox $INSTALLEXTRA
 
+  # RPi.GPIO replacement used by clusterctrl on non-Pi5 controllers
+  if [ $NEWOS = "1" ]; then
+   chroot $MNT apt -y install python3-rpi-lgpio || echo "WARNING: python3-rpi-lgpio not available"
+  fi
+
   # Setup ready for iptables for NAT for NAT/WiFi use
   # Preseed answers for iptables-persistent install
   chroot $MNT /bin/bash -c "echo 'iptables-persistent iptables-persistent/autosave_v4 boolean false' | debconf-set-selections"
